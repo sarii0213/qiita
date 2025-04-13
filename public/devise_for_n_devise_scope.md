@@ -1,11 +1,11 @@
 ---
-title: devise_for, devise_scopeの使い方
-tags: 
-  - 'rails'
-  - 'devise'
+title: 'devise_for, devise_scopeの使い方'
+tags:
+  - Rails
+  - devise
 private: false
-updated_at: ''
-id: null
+updated_at: '2025-04-13T19:04:13+09:00'
+id: a7fa14c8bbe66bf846f8
 organization_url_name: null
 slide: false
 ignorePublish: false
