@@ -17,6 +17,7 @@ ignorePublish: false
 はじめてのAWS ECSでのデプロイ。
 Herokuやfly.ioなどでの比較的手軽にできるデプロイとは違い、
 １から作っていく感を楽しみつつ（もがきつつ）、その手順をまとめました。
+
 初めてECSでデプロイをする際の参考になったらと思います…！
 （※ ある程度機能を作り、Docker化済みのRailsアプリのデプロイです。）
 
@@ -24,17 +25,18 @@ Herokuやfly.ioなどでの比較的手軽にできるデプロイとは違い�
 手順としては、以下の通りです。
 1. [scaffoldアプリを作る](#1-scaffoldアプリを作る)
 2. [scaffoldアプリをDocker化](#2-scaffoldアプリをdocker化)
-3. 必要なAWSリソースを作る (CloudFormation)
+3. [必要なAWSリソースを作る (CloudFormation)](#3-必要なawsリソースを作る)
 4. 手動デプロイしてみる
 5. CI/CDの設定
 6. 自前のRailsアプリをデプロイ (CI/CD) :tada:
 
 
-Ruby version: 3.2.4, Rails version: 7.2.2.1 (scaffold) / 8.0.2 (自前)
+Ruby version: 3.2.4, Rails version: 7.2.2.1 (自前) / 8.0.2 (scaffold)
+（Railsのバージョンも合わせた方が本当はいいと思います。。）
 
 ## 1. scaffoldアプリを作る
 
-RailsアプリをECSにデプロイするのが初めてだったので、最小限の構成のRailsアプリをまず準備します。
+RailsアプリをECSにデプロイするのが初めてだったので、テスト用に最小限の構成のRailsアプリをまず準備します。
 
 
 1. scaffoldアプリ用のディレクトリを作成し、そのディレクトリに入る
@@ -58,7 +60,7 @@ RailsアプリをECSにデプロイするのが初めてだったので、最小
     
     ```sh
       bundle install
-      # `rbenv local 3.2.4`のように互換性のあるrubyバージョンに変更してからのインストールでないとエラーで失敗した
+      # 互換性エラーで失敗したので、`rbenv local 3.2.4`のように互換性のあるrubyバージョンに変更してからインストールし直し成功
     ```
     <br>
 6. Railsアプリ新規作成
@@ -76,11 +78,11 @@ RailsアプリをECSにデプロイするのが初めてだったので、最小
 8. サーバ起動し、ブラウザで疎通確認
     ```sh
     bundle exec rails server
-    # 無事にブラウザでRailsアプリの表示ができていることを確認
+    # -> 無事にブラウザでRailsアプリの表示ができていることを確認
     ```
     <br>
     
-1.  scaffoldを使って簡単なCRUD実装
+9.  scaffoldを使って簡単なCRUD実装
     ```sh
     bundle exec rails generate scaffold Post name:string title:string content:text
     # ↓
@@ -104,7 +106,7 @@ scaffoldを利用して作成した、最小限の構成のRailsアプリをDock
 https://github.com/sarii0213/lean_up/tree/main
 
 ### Dockerfile（開発用と本番用）
-開発環境と本番環境でイメージの中身（環境変数や行う処理）が異なるので、ファイルを分けます。
+開発環境と本番環境の間で、環境変数や行う処理が異なるのでファイルを分けます。
 
 <details><summary>Dockerfile.dev (開発環境用)</summary>
 
@@ -243,6 +245,11 @@ https://github.com/sarii0213/lean_up/tree/main
 
   exec "${@}"
   ```
+:::note 
+  DBテーブル構造の更新（`ridgepole:apply`）が行われるのは、開発環境ではdockerビルド時、本番環境ではデプロイ時、と分けています。本番環境ではAWS側の都合等でECS Taskが落ちてデプロイ時以外でビルドし直されることがあるので、予期せぬタイミングでDB構造の変更が起きないように分けています。
+:::
+
+
 </details>
 
 ### docker-compose.yml
@@ -326,34 +333,18 @@ volumes:
 
 ### database.yml
 開発環境と本番環境でのPostgresqlの接続設定をします。
-本番環境については、ひとまず環境変数を取得するようにだけしておきます。
+本番環境については、環境変数を取得するように書いておきます。
 （後ほどAWS Secrets ManagerにてDB接続に必要な値を生成します。）
 
 <details><summary>database.yml</summary>
 
 ```yaml:config/database.yml
-# PostgreSQL. Versions 9.3 and up are supported.
-#
-# Install the pg driver:
-#   gem install pg
-# On macOS with Homebrew:
-#   gem install pg -- --with-pg-config=/usr/local/bin/pg_config
-# On Windows:
-#   gem install pg
-#       Choose the win32 build.
-#       Install PostgreSQL and put its /bin directory on your path.
-#
-# Configure Using Gemfile
-# gem "pg"
-#
 default: &default
   adapter: postgresql
   encoding: unicode
   host: db
   username: 'postgres'
   password: 'password'
-  # For details on connection pooling, see Rails configuration guide
-  # https://guides.rubyonrails.org/configuring.html#database-pooling
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
 
 
@@ -361,85 +352,31 @@ development:
   <<: *default
   database: lean_up_development
 
-  # The specified database role being used to connect to PostgreSQL.
-  # To create additional roles in PostgreSQL see `$ createuser --help`.
-  # When left blank, PostgreSQL will use the default role. This is
-  # the same name as the operating system user running Rails.
-  #username: lean_up
-
-  # The password associated with the PostgreSQL role (username).
-  #password:
-
-  # Connect on a TCP socket. Omitted by default since the client uses a
-  # domain socket that doesn't need configuration. Windows does not have
-  # domain sockets, so uncomment these lines.
-  #host: localhost
-
-  # The TCP port the server listens on. Defaults to 5432.
-  # If your server runs on a different port number, change accordingly.
-  #port: 5432
-
-  # Schema search path. The server defaults to $user,public
-  #schema_search_path: myapp,sharedapp,public
-
-  # Minimum log levels, in increasing order:
-  #   debug5, debug4, debug3, debug2, debug1,
-  #   log, notice, warning, error, fatal, and panic
-  # Defaults to warning.
-  #min_messages: notice
-
-# Warning: The database defined as "test" will be erased and
-# re-generated from your development database when you run "rake".
-# Do not set this db to the same as development or production.
 test:
   <<: *default
   database: lean_up_test
 
-# As with config/credentials.yml, you never want to store sensitive information,
-# like your database password, in your source code. If your source code is
-# ever seen by anyone, they now have access to your database.
-#
-# Instead, provide the password or a full connection URL as an environment
-# variable when you boot the app. For example:
-#
-#   DATABASE_URL="postgres://myuser:mypass@localhost/somedatabase"
-#
-# If the connection URL is provided in the special DATABASE_URL environment
-# variable, Rails will automatically merge its configuration values on top of
-# the values provided in this file. Alternatively, you can specify a connection
-# URL environment variable explicitly:
-#
-#   production:
-#     url: <%= ENV["MY_APP_DATABASE_URL"] %>
-#
-# Read https://guides.rubyonrails.org/configuring.html#configuring-a-database
-# for a full overview on how database connection configuration can be specified.
-#
 production:
   <<: *default
   host: <%= ENV.fetch("DB_HOST", 'host') %>
   database: <%= ENV.fetch("DB_NAME", 'database') %>
   username: <%= ENV.fetch("DB_USERNAME", 'username') %>
   password: <%= ENV.fetch("DB_PASSWORD", 'password') %>
-
 ```
 </details>
 
 ### production.rb
 本番環境で接続を許可するホストヘッダーとパス（ヘルスチェック用）の設定をします。
-（ホストヘッダーの値は後ほどTask Definitionにて、用意済みのドメイン名を入れます。）
-DNSリバインディング攻撃からの保護は開発環境ではデフォルトでON,本番環境ではデフォルトでOFFになっているらしい。
+（ホストヘッダーの環境変数の値は、すでに購入してあるドメイン名を、後ほどCloudFormationのTask Definitionにて設定します。）
+DNSリバインディング攻撃からの保護は開発環境ではデフォルトでON,本番環境ではデフォルトでOFFになっているらしい。（todo: ちゃんと理解して書く ❗）
 今回は本番環境でもONにしました。
 参考：[DNSリバインディング(DNS Rebinding)対策総まとめ](https://blog.tokumaru.org/2022/05/dns-rebinding-protection.html)
 
 <details><summary>production.rb</summary>
 
 ```rb:config/environments/production.rb
-...
   config.hosts << ENV["RAILS_CONFIG_HOSTS"] if ENV["RAILS_CONFIG_HOSTS"]
-
   config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
-...
 ```
 </details>
 
@@ -448,17 +385,19 @@ DNSリバインディング攻撃からの保護は開発環境ではデフォ�
 
 CloudFormation(略してCFn)でデプロイ先のAWSリソースを作っていきます。
 
-流れとしては、作るもの①を作り終わったら、Imageのプッシュの作業をしたりなどして、作るもの②を作ります。
-今回作成したCloudFormationの全YAMLファイルはこちら↓にあります。
-（作るもの①②にて列挙している順番に、YAMLファイルひとつひとつを S3へアップロード->CloudFormationでcreate stackで作っていきます。）
+ここでの流れとしては、CFnでのリソース作成① → Imageプッシュ作業など → CFnでのリソース作成② という順に行なっていきます。
+今回作成したCFnの全YAMLファイルはこちら↓にあります。
 
 https://github.com/sarii0213/lean_up/tree/main/deploy
 
+:::note
+実際の作業としては、CFnでのリソース作成①②にて列挙している順番に、YAMLファイルひとつひとつを S3へアップロード → AWSマネジメントコンソールにてCFnの"create stack"ボタン押下（テンプレートにはS3 URLを指定）からAWSリソースを作っていきます。
+:::
 
 ### 構成図
-todo: 自作する
+todo: 自作する ❗️
 
-### CFnで作るもの① (概略と注意点など)
+### CFnでのリソース作成① (概略と注意点など)
 - Route53 (Value Domainにて取得済みのドメイン名を登録。Route53にて生成されるNSレコードをValue Domain側に入力し、名前解決の際にドメイン名の権威サーバがAWSの権威サーバのIPを返すようにする)
 - Certificate Manager (https通信を可能にするためのもの。SSL/TLS証明書を発行・管理する)
 - VPC（ネットワークの外枠）
@@ -499,7 +438,7 @@ scaffoldアプリのイメージをビルドし、ECRにプッシュします。
    docker push <account_id>.dkr.ecr.ap-northeast-1.amazonaws.com/<built_image_name>:latest
    ```
 
-### CFnで作るもの① (概略と注意点など)
+### CFnでのリソース作成② (概略と注意点など)
 - launch template
 - ec2 auto scaling
 - ecs (cluster, task definition, service) 
