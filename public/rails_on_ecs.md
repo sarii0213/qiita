@@ -1,5 +1,5 @@
 ---
-title: 既存RailsアプリをECSに初めてデプロイ(CI/CD)したときの手順
+title: 既存RailsアプリをECSに初めてデプロイ(CI/CD)したときの手順①【scaffoldアプリ作成 & Docker化】
 tags:
   - 'Rails'
   - 'ECS'
@@ -25,11 +25,12 @@ Herokuやfly.ioなどでの比較的手軽にできるデプロイとは違い�
 手順としては、以下の通りです。
 1. [scaffoldアプリを作る](#1-scaffoldアプリを作る)
 2. [scaffoldアプリをDocker化](#2-scaffoldアプリをdocker化)
-3. [必要なAWSリソースを作る (CloudFormation)](#3-必要なawsリソースを作る)
+3. [必要なAWSリソースを作る (CloudFormation)]()
 4. 手動デプロイしてみる
 5. CI/CDの設定
 6. 自前のRailsアプリをデプロイ (CI/CD) :tada:
 
+idea: テーブル表記にして、見やすくする？見出しを減らす？（scaffoldアプリ作成＆Docker化, AWSリソース作成, デプロイ（CI/CD設定）の３つにするとか）
 
 Ruby version: 3.2.4, Rails version: 7.2.2.1 (自前) / 8.0.2 (scaffold)
 （Railsのバージョンも合わせた方が本当はいいと思います。。）
@@ -379,66 +380,3 @@ DNSリバインディング攻撃からの保護は開発環境ではデフォ�
   config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
 ```
 </details>
-
-
-## 3. 必要なAWSリソースを作る
-
-CloudFormation(略してCFn)でデプロイ先のAWSリソースを作っていきます。
-
-ここでの流れとしては、CFnでのリソース作成① → Imageプッシュ作業など → CFnでのリソース作成② という順に行なっていきます。
-今回作成したCFnの全YAMLファイルはこちら↓にあります。
-
-https://github.com/sarii0213/lean_up/tree/main/deploy
-
-:::note
-実際の作業としては、CFnでのリソース作成①②にて列挙している順番に、YAMLファイルひとつひとつを S3へアップロード → AWSマネジメントコンソールにてCFnの"create stack"ボタン押下（テンプレートにはS3 URLを指定）からAWSリソースを作っていきます。
-:::
-
-### 構成図
-todo: 自作する ❗️
-
-### CFnでのリソース作成① (概略と注意点など)
-- Route53 (Value Domainにて取得済みのドメイン名を登録。Route53にて生成されるNSレコードをValue Domain側に入力し、名前解決の際にドメイン名の権威サーバがAWSの権威サーバのIPを返すようにする)
-- Certificate Manager (https通信を可能にするためのもの。SSL/TLS証明書を発行・管理する)
-- VPC（ネットワークの外枠）
-- IAM (ECS Execの権限を作成。ECS Execは、ECS Taskの外側からTask内での処理を命令できる機。 ※ AWSを操作するためのIAM Userは事前に作成済み)
-- RDS（データベース。ECS Task内でもDB用のコンテナ作ることも可能だが、AWSに管理を丸投げできたりするのでRDSを使う。）
-- Secrets Manager（CloudFrontで使うカスタムヘッダの値＆DBの認証情報を保管する。`RAILS_MASTER_KEY`も保存する。<- config/master.keyの値をコピペして保存。）
-- ELB（トラフィックをパス毎に振り分けをする。health checkもしている。http->httpsのリダイレクトも。）
-- CloudFront（キャッシュ配信とエッジロケーションでレスポンスが高速化。静的ファイルはS3へ、それ以外はELBへ、とトラフィックの振り分けも行う）
-- S3（アプリの静的ファイル用とログ用のファイル置き場）
-- ECR（Docker Imageを保管する場所。ローカルからECRにimageをプッシュして、それをECS Task Definitionにて参照する。）
-
-### scaffoldアプリのimageをECRへプッシュ
-
-scaffoldアプリのイメージをビルドし、ECRにプッシュします。
-ビルドからプッシュまでのコマンドは、AWSマネジメントコンソールのECRの画面 > View push commands でも確認できます。
-
-1. Dockerfileからimageをbuild
-  ```sh
-  docker build --platform linux/x86_64 .
-  # デプロイ先の環境に対応させるためにplatformを指定
-  # （自PCのCPUアーキテクチャがArm, デプロイ先はx86_64）
-  ```
-1. ecrへのpushができるよう認証 
-  ```sh
-  aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin <account_id>.dkr.ecr.ap-northeast-1.amazonaws.com
-  # <account_id> = 自分のAWS account ID
-  ```
-
-1. buildしたimageにタグ付け
-  ```sh
-  docker tag <built_image_name>:latest <account_id>.dkr.ecr.ap-northeast-1.amazonaws.com/<built_image_name>:latest
-  # Docker Imageはpushする時にpush先をtagで判断する。ECRにpushするにはそのECRのURLを含む名前でタグ付けしておく必要がある。
-  # <built_image_name> = ビルドしたImage名
-  ```
-  
-1. ECRにimageをpush
-   ```sh
-   docker push <account_id>.dkr.ecr.ap-northeast-1.amazonaws.com/<built_image_name>:latest
-   ```
-
-### CFnでのリソース作成② (概略と注意点など)
-- launch template
-- ec2 auto scaling
-- ecs (cluster, task definition, service) 
