@@ -14,7 +14,7 @@ slide: false
 ignorePublish: false
 ---
 
-はじめてのAWS ECSでのデプロイ。
+はじめてのAWS ECS（EC2起動タイプ）でのデプロイ。
 Herokuやfly.ioなどでの比較的手軽にできるデプロイとは違い、
 １から作っていく感を楽しみつつ（もがきつつ）、その手順をまとめました。
 

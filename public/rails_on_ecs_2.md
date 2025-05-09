@@ -44,6 +44,8 @@ todo: 自作する ❗️
 
 ### CFnでのリソース作成① (概略と注意点など)
 
+CloudFormationを使って作成するAWSリソース①は、Route53, ACM, VPC, IAM, RDS, Secret Manager, ELB, CloudFront, S3, ECRです。これらを作成後、ECRにscaffoldアプリのDockerイメージをプッシュします。（[→次の手順へ](#scaffoldアプリのdockerイメージをecrへプッシュ)）
+
 #### Route53
 - [Value Domain](https://www.value-domain.com/)にて取得済みのドメイン名をHosted Zoneとして登録。CAAレコードも作成。（SSL/TLS証明書の不正発行防止のため）
 - Route53にて生成されるNSレコードをValue Domain側に入力（名前解決の際に取得したドメイン名の権威サーバがAWSの権威サーバのIPを返すようにするため）
@@ -70,50 +72,68 @@ todo: 自作する ❗️
   （`RAILS_MASTER_KEY`：アプリ内のcredentialsを復号するための暗号鍵）
 
 #### ELB
-- トラフィックをパス毎に振り分け, health check, http → httpsのリダイレクト を設定
+- トラフィックをパス毎に振り分け, health check, http→httpsのリダイレクト を設定
 
 #### CloudFront
 - キャッシュ配信とエッジロケーションでレスポンスが高速化
 - 「静的ファイルはS3へ, それ以外はELBへ」とトラフィックの振り分けも行う
 
 #### S3
-- アプリの静的ファイル用とログ用のファイル置き場
+- アプリの静的ファイル用 & ログ用のファイル置き場
 
 #### ECR
 - Docker Imageを保管する場所
 - ローカルからECRにimageをプッシュして、それをECS Task Definitionにて参照する
 
 
-### scaffoldアプリのimageをECRへプッシュ
+### scaffoldアプリのDockerイメージをECRへプッシュ
 
-scaffoldアプリのイメージをビルドし、ECRにプッシュします。
 ビルドからプッシュまでのコマンドは、AWSマネジメントコンソールのECRの画面 > View push commands でも確認できます。
 
-1. Dockerfileからimageをbuild
-  ```sh
-  docker build --platform linux/x86_64 .
-  # デプロイ先の環境に対応させるためにplatformを指定
-  # （自PCのCPUアーキテクチャがArm, デプロイ先はx86_64）
-  ```
-1. ecrへのpushができるよう認証 
-  ```sh
-  aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin <account_id>.dkr.ecr.ap-northeast-1.amazonaws.com
-  # <account_id> = 自分のAWS account ID
-  ```
+1. Dockerfileからイメージをビルド
+    ```sh
+    docker build --platform linux/x86_64 .
+    # デプロイ先の環境に対応させるためにplatformを指定
+    # （自PCのCPUアーキテクチャがArm(macOS Apple Silicon), デプロイ先はx86_64）
+    ```
+    <br>
 
-1. buildしたimageにタグ付け
-  ```sh
-  docker tag <built_image_name>:latest <account_id>.dkr.ecr.ap-northeast-1.amazonaws.com/<built_image_name>:latest
-  # Docker Imageはpushする時にpush先をtagで判断する。ECRにpushするにはそのECRのURLを含む名前でタグ付けしておく必要がある。
-  # <built_image_name> = ビルドしたImage名
-  ```
+2. ECRへのプッシュができるよう認証 
+    ```sh
+    aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin <account_id>.dkr.ecr.ap-northeast-1.amazonaws.com
+    # <account_id> = 自分のAWS account ID
+    ```
+    <br>
+
+3. ビルドしたイメージにタグ付け
+    ```sh
+    docker tag <built_image_name>:latest <account_id>.dkr.ecr.ap-northeast-1.amazonaws.com/<built_image_name>:latest
+    # Dockerイメージはpushする時にプッシュ先をタグで判断する。ECRにプッシュするにはそのECRのURLを含む名前でタグ付けしておく必要がある。
+    # <built_image_name> = ビルドしたイメージ名
+    ```
+    <br>
   
-1. ECRにimageをpush
+1. ECRにイメージをプッシュ
    ```sh
    docker push <account_id>.dkr.ecr.ap-northeast-1.amazonaws.com/<built_image_name>:latest
    ```
 
 ### CFnでのリソース作成② (概略と注意点など)
-- launch template
-- ec2 auto scaling
-- ecs (cluster, task definition, service) 
+
+ECRにscaffoldアプリのDockerイメージをプッシュできたら、再度CloudFormationにてリソースを作成します。
+作るAWSリソースは、EC2(Security Group, Launch Template), Auto Scaling Group, ECS (Cluster, Task Definition, Service)です。
+
+#### Security Group
+- アクセス制御（ファイアウォール的役割）
+#### Launch Template
+- 起動するEC2インスタンスの設定
+#### Auto Scaling Group
+- スケーリングの設定（どのタイミングで何台起動するか）
+#### ECS Cluster
+- ECS Service, ECS Taskの外枠
+#### ECS Task Definition
+- ECS Serviceが起動するTaskの定義（各コンテナの設定）
+#### ECS Service
+- Taskを常時起動する仕組み。
+- EC2起動タイプとFargateのうち、EC2起動タイプを選んだ理由：
+
