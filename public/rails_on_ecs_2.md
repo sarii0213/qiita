@@ -121,19 +121,101 @@ CloudFormationを使って作成するAWSリソース①は、Route53, ACM, VPC,
 ### CFnでのリソース作成② (概略と注意点など)
 
 ECRにscaffoldアプリのDockerイメージをプッシュできたら、再度CloudFormationにてリソースを作成します。
-作るAWSリソースは、EC2(Security Group, Launch Template), Auto Scaling Group, ECS (Cluster, Task Definition, Service)です。
+作るAWSリソースは、EC2(Security Group, Launch Template, Auto Scaling), ECS (Cluster, Task Definition, Service)です。
+
+:::note warn
+ECS ServiceをCFnにてcreate stackする時に必要な作業 ⚠️ ⚠️ ⚠️ ⚠️ 
+create stack後にただ待っているだけだと、RDSとの接続がまだできていないので、デプロイに失敗してロールバックされてしまいます。
+ecs-service create stack直後に、update serviceでdesired task: 0にしておくと、デプロイ成功します。
+その後、RDSとの接続ができるよう[こちら](#rdsのdbユーザ作成のためにtask定義)の作業をします。
+:::
 
 #### Security Group
-- アクセス制御（ファイアウォール的役割）
+- ELB - ECS Task - RDS 間のトラフィック許可設定（ファイアウォール的役割）
+
 #### Launch Template
-- 起動するEC2インスタンスの設定
+- 起動するEC2インスタンスのデフォルトの設定
+- EC2インスタンスがECSインスタンスとして機能できるようにするための設定：
+  - User dataにて、ECSコンテナエージェントの設定値を入れる
+
 #### Auto Scaling Group
-- スケーリングの設定（どのタイミングで何台起動するか）
+- スケーリングの設定（インスタンスの起動数をどのタイミングで何台に増減させるか）
+
 #### ECS Cluster
 - ECS Service, ECS Taskの外枠
+
 #### ECS Task Definition
-- ECS Serviceが起動するTaskの定義（各コンテナの設定）
+- ECS Serviceが起動するTaskの定義（Task：コンテナの集まり）
+
 #### ECS Service
 - Taskを常時起動する仕組み。
 - EC2起動タイプとFargateのうち、EC2起動タイプを選んだ理由：
+  - EC2起動タイプのデメリットがEC2の用意や管理の手間があること。インフラ, AWSの勉強のためにその手間を負いたかったから。
+  - 上記の理由がなければ、FargateはEC2起動タイプと同様にECS Execでコンテナ内でのデバッグができるし、手間的にも料金的（短期間・小規模のため）にもFargateに軍配が上がりそう。
 
+
+####  RDSのDBユーザ作成のためにtask定義
+
+ → run task with container override
+
+<details><summary>psql-task.yml</summary>
+
+```yaml:psql-task.yml
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create task to execute psql command
+
+Parameters:
+  SystemName:
+    Description: System Name
+    Type: String
+    Default: leanup
+  Environment:
+    Description: Environment
+    Type: String
+    Default: prod
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  ResourceName:
+    Description: Resource Name
+    Type: String
+    Default: viacdn
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Configuration
+        Parameters:
+          - SystemName
+          - Environment
+          - ResourceName
+
+Resources:
+  PsqlExecTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: psql-exec-task
+      RequiresCompatibilities:
+        - EC2
+      NetworkMode: bridge
+      ExecutionRoleArn: !ImportValue iam-role-AmazonECSTaskExecutionRoleArn
+      Cpu: '256'
+      Memory: '512'
+      ContainerDefinitions:
+        - Name: psql
+          Image: postgres:15
+          EntryPoint: ["sh", "-c"]
+          Command: ["sleep 3600"] # 後で run-task のときに上書きする
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub ${SystemName}-${Environment}-${ResourceName}-ecs-service-LogsLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: psql
+
+```
+</details>
