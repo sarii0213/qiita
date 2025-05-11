@@ -22,6 +22,8 @@ CloudFormation(略してCFn)でデプロイ先のAWSリソースを作ってい�
 [scaffoldアプリのimageをECRへプッシュ](#scaffoldアプリのimageをecrへプッシュ)
 ↓
 [CFnでのリソース作成② (EC2 Launch Template & Auto Scaling Group, ECS)](#cfnでのリソース作成-概略と注意点など-1)
+↓
+[RDSとの接続設定](#rdsのdbユーザを作成)
   
 という順に行なっていきます。
 今回作成したテンプレートの全YAMLファイルはこちら↓にあります。
@@ -44,7 +46,10 @@ todo: 自作する ❗️
 
 ### CFnでのリソース作成① (概略と注意点など)
 
-CloudFormationを使って作成するAWSリソース①は、Route53, ACM, VPC, IAM, RDS, Secret Manager, ELB, CloudFront, S3, ECRです。これらを作成後、ECRにscaffoldアプリのDockerイメージをプッシュします。（[→次の手順へ](#scaffoldアプリのdockerイメージをecrへプッシュ)）
+CloudFormationを使って作成するAWSリソース①は、Route53, ACM, VPC, IAM, RDS, Secret Manager, ELB, CloudFront, S3, ECRです。（上記のリポジトリ内のviacdnディレクトリ以外のYAMLファイル）
+Secret Managerのリソース作成後には、[こちら](#secrets-manager)にも書いてある通り、scaffoldアプリの`config/master.key`の値を`RAILS_MASTER_KEY`として保管します。
+
+これらを作成後、ECRにscaffoldアプリのDockerイメージをプッシュします。（[→次の手順](#scaffoldアプリのdockerイメージをecrへプッシュ)）
 
 #### Route53
 - [Value Domain](https://www.value-domain.com/)にて取得済みのドメイン名をHosted Zoneとして登録。CAAレコードも作成。（SSL/TLS証明書の不正発行防止のため）
@@ -121,13 +126,14 @@ CloudFormationを使って作成するAWSリソース①は、Route53, ACM, VPC,
 ### CFnでのリソース作成② (概略と注意点など)
 
 ECRにscaffoldアプリのDockerイメージをプッシュできたら、再度CloudFormationにてリソースを作成します。
-作るAWSリソースは、EC2(Security Group, Launch Template, Auto Scaling), ECS (Cluster, Task Definition, Service)です。
+作るAWSリソースは、EC2(Security Group, Launch Template, Auto Scaling), ECS (Cluster, Task Definition, Service)です。（リポジトリのviacdnディレクトリ内のYAMLファイル）
 
-:::note warn
-ECS ServiceをCFnにてcreate stackする時に必要な作業 ⚠️ ⚠️ ⚠️ ⚠️ 
-create stack後にただ待っているだけだと、RDSとの接続がまだできていないので、デプロイに失敗してロールバックされてしまいます。
-ecs-service create stack直後に、update serviceでdesired task: 0にしておくと、デプロイ成功します。
-その後、RDSとの接続ができるよう[こちら](#rdsのdbユーザ作成のためにtask定義)の作業をします。
+すべてのAWSリソースが作成できたら、DBとの接続ができるよう設定します。（[→次の手順](#rdsのdbユーザを作成)）
+
+:::note
+ECS Serviceのデプロイに謎に失敗してロールバックしてしまう場合の対処法
+ECS Serviceのリソースを作成直後に、update serviceでdesired task: 0に設定するとデプロイは成功するのでコンテナに入ってデバッグしたり、デプロイ失敗の原因究明ができます。
+デバッグ後にdesired task: 1にしてデプロイ成功するか様子を見て、試行錯誤していけます。
 :::
 
 #### Security Group
@@ -146,17 +152,27 @@ ecs-service create stack直後に、update serviceでdesired task: 0にしてお
 
 #### ECS Task Definition
 - ECS Serviceが起動するTaskの定義（Task：コンテナの集まり）
+- リバースプロキシサーバ（nginx）コンテナを設置しなかった理由：
+  - CloudFront, ALBがnginxの役割を十分になってくれているから
+    - CloudFront: 静的ファイル配信（静的コンテンツのキャッシュ, edge locationでの高速配信）, SSL終端, 強制HTTPS化
+    - ALB: ルーティング, SSL終端, 強制HTTPS化
+    - nginxの機能：リバースプロキシ（クライアントからのreqをbackend app serverに中継, ロードバランシング）←alb, SSL終端←cf&alb, 静的ファイル配信←cf, キャッシュ機能←cf, リクエスト制御・セキュリティ←cf, ヘルスチェック←alb, ルーティング←alb
 
 #### ECS Service
-- Taskを常時起動する仕組み。
+- Taskを常時起動する仕組み
 - EC2起動タイプとFargateのうち、EC2起動タイプを選んだ理由：
   - EC2起動タイプのデメリットがEC2の用意や管理の手間があること。インフラ, AWSの勉強のためにその手間を負いたかったから。
   - 上記の理由がなければ、FargateはEC2起動タイプと同様にECS Execでコンテナ内でのデバッグができるし、手間的にも料金的（短期間・小規模のため）にもFargateに軍配が上がりそう。
 
 
-####  RDSのDBユーザ作成のためにtask定義
+####  RDSのDBユーザを作成
 
- → run task with container override
+RDSとの接続のために、DBユーザ作成をしていきます。
+Task DefinitionでPostgresのTaskを定義して、AWS CLIもしくはAWSマネジメントコンソールでTaskを実行します。
+実行時に、DBユーザ作成コマンドを実行するようオーバーライドします。
+
+##### PostgresのTask定義
+下記のテンプレートをS3にアップロードし、CFnでスタック作成します。
 
 <details><summary>psql-task.yml</summary>
 
@@ -219,3 +235,22 @@ Resources:
 
 ```
 </details>
+
+##### Taskの実行
+マネジメントコンソールにて、DBユーザ作成コマンドで上書きしてTaskの実行をします。
+下記の`<db_user>`, `<db_password>`は、Secret Managerに保管してある非ルートユーザの値を入れます。
+
+画像ぼかしつけて入れる ‼️ スクリーンショット 2025-04-07 17.39.38.png
+
+ECS Cluster画面 > Tasks > Run new task > Container overrides > psql
+```
+psql -h <db_instance_endpoint> -U root -d postgres -c "CREATE USER <db_user> WITH ENCRYPTED PASSWORD '<db_password>'; ALTER USER <db_user> CREATEDB; SELECT * FROM pg_catalog.pg_user;"
+```
+ECS Cluster画面 > Tasks > Run new task > Environment variables overrides にて、Keyに`PASSWORD`, ValueにSecret ManagerのRDSのルートユーザのパスワードの値をコピペします。
+
+
+#### 挙動確認
+自身のドメイン名でアクセスしてブラウザが開けるか確認します。
+ブラウザが開くのを確認できたら、サンプルアプリの初回デプロイ達成です 🎉
+
+次に、[CI/CDの設定]()をしていきます！
