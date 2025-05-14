@@ -17,13 +17,13 @@ ignorePublish: false
 CloudFormation(略してCFn)でデプロイ先のAWSリソースを作っていきます。
 
 ここでの流れとしては、
-[CFnでのリソース作成① (VPC, RDS, ELB, CloudFront, ECR etc.)](#cfnでのリソース作成-概略と注意点など)
+[1. CFnでのリソース作成① (VPC, RDS, ELB, CloudFront, ECR etc.)](#1-cfnでのリソース作成-概略と注意点など)
 ↓
-[scaffoldアプリのimageをECRへプッシュ](#scaffoldアプリのimageをecrへプッシュ)
+[2. scaffoldアプリのimageをECRへプッシュ](#2-scaffoldアプリのimageをecrへプッシュ)
 ↓
-[CFnでのリソース作成② (EC2 Launch Template & Auto Scaling Group, ECS)](#cfnでのリソース作成-概略と注意点など-1)
+[3. CFnでのリソース作成② (EC2 Launch Template & Auto Scaling Group, ECS)](#3-cfnでのリソース作成-概略と注意点など-1)
 ↓
-[RDSとの接続設定](#rdsのdbユーザを作成)
+[4. RDSとの接続設定](#4-rdsのdbユーザを作成)
   
 という順に行なっていきます。
 今回作成したテンプレートの全YAMLファイルはこちら↓にあります。
@@ -44,9 +44,9 @@ todo: 自作する ❗️
 </details>
 
 
-### CFnでのリソース作成① (概略と注意点など)
+### 1. CFnでのリソース作成① (概略と注意点など)
 
-CloudFormationを使って作成するAWSリソース①は、Route53, ACM, VPC, IAM, RDS, Secret Manager, ELB, CloudFront, S3, ECRです。（上記のリポジトリ内のviacdnディレクトリ以外のYAMLファイル）
+CloudFormationを使って作成するAWSリソース①は、Route53, ACM, VPC, IAM, RDS, Secret Manager, ELB, CloudFront, S3, ECRです。（[上記のリポジトリ](https://github.com/sarii0213/lean_up/tree/main/deploy)内のviacdnディレクトリ以外のYAMLファイル）
 Secret Managerのリソース作成後には、[こちら](#secrets-manager)にも書いてある通り、scaffoldアプリの`config/master.key`の値を`RAILS_MASTER_KEY`として保管します。
 
 これらを作成後、ECRにscaffoldアプリのDockerイメージをプッシュします。（[→次の手順](#scaffoldアプリのdockerイメージをecrへプッシュ)）
@@ -91,7 +91,7 @@ Secret Managerのリソース作成後には、[こちら](#secrets-manager)に�
 - ローカルからECRにimageをプッシュして、それをECS Task Definitionにて参照する
 
 
-### scaffoldアプリのDockerイメージをECRへプッシュ
+### 2. scaffoldアプリのDockerイメージをECRへプッシュ
 
 ビルドからプッシュまでのコマンドは、AWSマネジメントコンソールのECRの画面 > View push commands でも確認できます。
 
@@ -123,7 +123,7 @@ Secret Managerのリソース作成後には、[こちら](#secrets-manager)に�
    docker push <account_id>.dkr.ecr.ap-northeast-1.amazonaws.com/<built_image_name>:latest
    ```
 
-### CFnでのリソース作成② (概略と注意点など)
+### 3. CFnでのリソース作成② (概略と注意点など)
 
 ECRにscaffoldアプリのDockerイメージをプッシュできたら、再度CloudFormationにてリソースを作成します。
 作るAWSリソースは、EC2(Security Group, Launch Template, Auto Scaling), ECS (Cluster, Task Definition, Service)です。（リポジトリのviacdnディレクトリ内のYAMLファイル）
@@ -165,13 +165,13 @@ ECS Serviceのリソースを作成直後に、update serviceでdesired task: 0�
   - 上記の理由がなければ、FargateはEC2起動タイプと同様にECS Execでコンテナ内でのデバッグができるし、手間的にも料金的（短期間・小規模のため）にもFargateに軍配が上がりそう。
 
 
-####  RDSのDBユーザを作成
+###  4. RDSのDBユーザを作成
 
-RDSとの接続のために、DBユーザ作成をしていきます。
+RDSとの接続のために、DBユーザの作成をしていきます。
 Task DefinitionでPostgresのTaskを定義して、AWS CLIもしくはAWSマネジメントコンソールでTaskを実行します。
 実行時に、DBユーザ作成コマンドを実行するようオーバーライドします。
 
-##### PostgresのTask定義
+#### PostgresのTask定義
 下記のテンプレートをS3にアップロードし、CFnでスタック作成します。
 
 <details><summary>psql-task.yml</summary>
@@ -223,7 +223,7 @@ Resources:
         - Name: psql
           Image: postgres:15
           EntryPoint: ["sh", "-c"]
-          Command: ["sleep 3600"] # 後で run-task のときに上書きする
+          Command: ["sleep 3600"] # 後で run-task 時に上書きする
           Essential: true
           LogConfiguration:
             LogDriver: awslogs
@@ -236,20 +236,25 @@ Resources:
 ```
 </details>
 
-##### Taskの実行
+#### Taskの実行
 マネジメントコンソールにて、DBユーザ作成コマンドで上書きしてTaskの実行をします。
+（DB作成は、デプロイ時にdocker-entrypointに書かれた`db:prepare`にて行われます。）
 下記の`<db_user>`, `<db_password>`は、Secret Managerに保管してある非ルートユーザの値を入れます。
 
-画像ぼかしつけて入れる ‼️ スクリーンショット 2025-04-07 17.39.38.png
+<details><summary>マネジメントコンソール画面（ECS Cluster選択 > Tasks > Run new task > Container overrides > psql）</summary>
 
-ECS Cluster画面 > Tasks > Run new task > Container overrides > psql
-```
-psql -h <db_instance_endpoint> -U root -d postgres -c "CREATE USER <db_user> WITH ENCRYPTED PASSWORD '<db_password>'; ALTER USER <db_user> CREATEDB; SELECT * FROM pg_catalog.pg_user;"
-```
-ECS Cluster画面 > Tasks > Run new task > Environment variables overrides にて、Keyに`PASSWORD`, ValueにSecret ManagerのRDSのルートユーザのパスワードの値をコピペします。
+![psql_task_exec.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/2669070/7585156d-ea7b-4ab1-981c-499f6236fcc9.png)
+</details>
 
 
-#### 挙動確認
+  ```bash
+  # DBユーザ作成コマンド（作成できたかの確認コマンドも含む）
+  psql -h <db_instance_endpoint> -U root -d postgres -c "CREATE USER <db_user> WITH ENCRYPTED PASSWORD '<db_password>'; ALTER USER <db_user> CREATEDB; SELECT * FROM pg_catalog.pg_user;"
+  ```
+ECS Cluster画面 > Tasks > Run new task > Environment variables overrides にて、Keyに`PGPASSWORD`, ValueにSecret ManagerのRDSのルートユーザのパスワードの値をコピペします。
+
+
+### 挙動確認
 自身のドメイン名でアクセスしてブラウザが開けるか確認します。
 ブラウザが開くのを確認できたら、サンプルアプリの初回デプロイ達成です 🎉
 
