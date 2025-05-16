@@ -23,21 +23,32 @@ Herokuやfly.ioなどでの比較的手軽にできるデプロイとは違い�
 
 
 手順としては、以下の通りです。
-1. [scaffoldアプリを作る](#1-scaffoldアプリを作る)
-2. [scaffoldアプリをDocker化](#2-scaffoldアプリをdocker化)
-3. [必要なAWSリソースを作る (CloudFormation)]()
-4. 手動デプロイしてみる
-5. CI/CDの設定
-6. 自前のRailsアプリをデプロイ (CI/CD) :tada:
 
-idea: テーブル表記にして、見やすくする？見出しを減らす？（scaffoldアプリ作成＆Docker化, AWSリソース作成, デプロイ（CI/CD設定）の３つにするとか）
+|     |                                        | 
+| --- | -------------------------------------------- | 
+| 1   | scaffoldアプリ作成＆Docker化 👈 この記事 | 
+| 2   | [CFnでAWSリソース作成]()                     | 
+| 3   | [CI/CDの設定]()                                  | 
 
-Ruby version: 3.2.4, Rails version: 7.2.2.1 (自前) / 8.0.2 (scaffold)
-（Railsのバージョンも合わせた方が本当はいいと思います。。）
+
+この記事では、scaffoldアプリの作成＆Docker化について書いていきます。
+
+流れは、
+[1. scaffoldアプリを作る](#1-scaffoldアプリを作る)
+↓
+[2. scaffoldアプリをDocker化](#2-scaffoldアプリをdocker化)
+↓
+[3. 挙動確認](#3-挙動確認)
+
+という順に行なっていきます。
+
 
 ## 1. scaffoldアプリを作る
 
 RailsアプリをECSにデプロイするのが初めてだったので、テスト用に最小限の構成のRailsアプリをまず準備します。
+
+Ruby version: 3.2.4, Rails version: 7.2.2.1 (自前) / 8.0.2 (scaffold)
+（Railsのバージョンも自前アプリとscaffoldで合わせた方がより安心かと思います...）
 
 
 1. scaffoldアプリ用のディレクトリを作成し、そのディレクトリに入る
@@ -380,3 +391,9 @@ DNSリバインディング攻撃からの保護は開発環境ではデフォ�
   config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
 ```
 </details>
+
+## 3. 挙動確認
+
+scaffoldアプリのDocker化が正しく行われていることを最後に確認します。
+`docker-compose up`でコンテナを起動し、ブラウザで正常に表示されることを確認できたら、
+[CloudFormationdでのAWSリソース作成]()に入ります。

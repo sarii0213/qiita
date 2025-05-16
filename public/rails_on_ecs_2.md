@@ -1,5 +1,5 @@
 ---
-title: 既存RailsアプリをECSに初めてデプロイ(CI/CD)したときの手順②【CloudFormationでリソース作成】
+title: 既存RailsアプリをECSに初めてデプロイ(CI/CD)したときの手順②【CFnでAWSリソース作成】
 tags:
   - 'Rails'
   - 'ECS'
@@ -14,7 +14,18 @@ slide: false
 ignorePublish: false
 ---
 
-CloudFormation(略してCFn)でデプロイ先のAWSリソースを作っていきます。
+RailsアプリをはじめてECS（EC2起動タイプ）にデプロイした時の記録です。
+全体の手順としては、以下の通りです。
+
+|     |                                        | 
+| --- | -------------------------------------------- | 
+| 1   | [scaffoldアプリ作成＆Docker化]() | 
+| 2   | CFnでAWSリソース作成 👈 この記事                    | 
+| 3   | [CI/CDの設定]()                                  | 
+
+
+この記事では、CloudFormation(略してCFn)でデプロイ先のAWSリソースを作っていきます。
+
 
 ここでの流れとしては、
 [1. CFnでのリソース作成① (VPC, RDS, ELB, CloudFront, ECR etc.)](#1-cfnでのリソース作成-概略と注意点など)
@@ -241,7 +252,7 @@ Resources:
 （DB作成は、デプロイ時にdocker-entrypointに書かれた`db:prepare`にて行われます。）
 下記の`<db_user>`, `<db_password>`は、Secret Managerに保管してある非ルートユーザの値を入れます。
 
-<details><summary>マネジメントコンソール画面（ECS Cluster選択 > Tasks > Run new task > Container overrides > psql）</summary>
+<details><summary>マネジメントコンソール画面（ECS Cluster選択 > Tasks > Run new task > Container overrides > psql）にて、DBユーザ作成コマンドとルートユーザのDBパスワードを入力し、Task実行</summary>
 
 ![psql_task_exec.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/2669070/7585156d-ea7b-4ab1-981c-499f6236fcc9.png)
 </details>
@@ -251,11 +262,11 @@ Resources:
   # DBユーザ作成コマンド（作成できたかの確認コマンドも含む）
   psql -h <db_instance_endpoint> -U root -d postgres -c "CREATE USER <db_user> WITH ENCRYPTED PASSWORD '<db_password>'; ALTER USER <db_user> CREATEDB; SELECT * FROM pg_catalog.pg_user;"
   ```
-ECS Cluster画面 > Tasks > Run new task > Environment variables overrides にて、Keyに`PGPASSWORD`, ValueにSecret ManagerのRDSのルートユーザのパスワードの値をコピペします。
+ECS Cluster画面 > Tasks > Run new task > Environment variables overrides にて、Keyに`PGPASSWORD`, ValueにSecret ManagerのRDSのルートユーザのDBパスワードの値をコピペします。
 
 
 ### 挙動確認
-自身のドメイン名でアクセスしてブラウザが開けるか確認します。
-ブラウザが開くのを確認できたら、サンプルアプリの初回デプロイ達成です 🎉
+自身のドメイン名でアクセスしてブラウザで正常に表示できるか確認します。
+アプリの表示を確認できたら、サンプルアプリの初回デプロイ達成です 🎉
 
 次に、[CI/CDの設定]()をしていきます！
