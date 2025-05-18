@@ -34,7 +34,9 @@ RailsアプリをはじめてECS（EC2起動タイプ）にデプロイした時
 ↓
 [3. CFnでのリソース作成② (EC2 Launch Template & Auto Scaling Group, ECS)](#3-cfnでのリソース作成-概略と注意点など-1)
 ↓
-[4. RDSとの接続設定](#4-rdsのdbユーザを作成)
+[4. RDSとの接続設定](#4-RDSとの接続設定)
+↓
+[5. 挙動確認](#5-挙動確認)　\:tada:
   
 という順に行なっていきます。
 今回作成したテンプレートの全YAMLファイルはこちら↓にあります。
@@ -176,7 +178,7 @@ ECS Serviceのリソースを作成直後に、update serviceでdesired task: 0�
   - 上記の理由がなければ、FargateはEC2起動タイプと同様にECS Execでコンテナ内でのデバッグができるし、手間的にも料金的（短期間・小規模のため）にもFargateに軍配が上がりそう。
 
 
-###  4. RDSのDBユーザを作成
+###  4. RDSとの接続設定
 
 RDSとの接続のために、DBユーザの作成をしていきます。
 Task DefinitionでPostgresのTaskを定義して、AWS CLIもしくはAWSマネジメントコンソールでTaskを実行します。
@@ -265,7 +267,7 @@ Resources:
 ECS Cluster画面 > Tasks > Run new task > Environment variables overrides にて、Keyに`PGPASSWORD`, ValueにSecret ManagerのRDSのルートユーザのDBパスワードの値をコピペします。
 
 
-### 挙動確認
+### 5. 挙動確認
 自身のドメイン名でアクセスしてブラウザで正常に表示できるか確認します。
 アプリの表示を確認できたら、サンプルアプリの初回デプロイ達成です 🎉
 
