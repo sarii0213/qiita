@@ -242,7 +242,7 @@ Ruby, gemのバージョン：
    :::note warn
    LINEログインチャネルにて、**callback URL**の設定も必要
    (callback URL = [上記のLINEログインのフロー](#認証認可の基本情報)の3にて、ユーザの認証＆認可後に認可コードを受け取るWebアプリのURL)
-   :bulb: dev環境ではngrokを使って開発中アプリを公開しているので、ngrokから発行されたドメインを含んだcallback URLを登録する。
+   :bulb: dev環境では[ngrok](https://ngrok.com/docs/getting-started/)を使って開発中アプリを公開しているので、ngrokから発行されたドメインを含んだcallback URLを登録する。
    :::
    <br>
 
@@ -349,6 +349,161 @@ Ruby, gemのバージョン：
     ```
     <br>
 1. **LINE配信のジョブを作成**
-   - 環境変数を設定
-     - MessaginAPI用チャネルのアクセストークン`LINE_BOT_CHANNEL_ACCESS_TOKEN`とWebアプリのhostである`APP_HOST`を.envに保存
-     （画像を配信する場合のURL生成に必要な値`Rails.application.routes.default_url_options[:host]`）
+   1. 環境変数を設定
+        - MessaginAPI用チャネルのアクセストークン`LINE_BOT_CHANNEL_ACCESS_TOKEN`とWebアプリのhostである`APP_HOST`を.envに保存
+     （画像を配信する場合のURL生成に必要な値`Rails.application.routes.default_url_options[:host]`）<br>
+   2. userテーブルに`line_notify`カラムを追加
+   （加えて、ユーザー設定画面にLINE配信許可の設定を追加し、コントローラでもparamsに`line_notify`追加）
+   3. LINE配信のジョブを作成
+      <details><summary>push_line_jobのコード</summary>
+
+      ```rb:app/jobs/push_line_job.rb
+      require 'line/bot'
+
+      class PushLineJob < ApplicationJob
+        queue_as :default
+
+        def perform(*_args)
+          users = User.where.not(uid: nil).where(line_notify: true).includes(:objectives)
+          users.each do |user|
+            # LINE配信許可がONのユーザーに対して、登録されたコンテンツの中からランダムに選択してメッセージ配信 
+            objective = user.objectives.sample
+            next if objective.blank?
+
+            message = build_message(objective)
+            request = Line::Bot::V2::MessagingApi::PushMessageRequest.new(to: user.uid, messages: [message])
+            begin
+              client.push_message(push_message_request: request)
+            rescue StandardError => e
+              # エラー通知処理
+            end
+          end
+        end
+
+        private
+
+        def build_message(objective)
+          # メッセージオブジェクトを生成
+          # 画像メッセージ -> Line::Bot::V2::MessagingApi::ImageMessage.new(...)
+          # テキストメッセージ -> Line::Bot::V2::MessagingApi::TextMessage.new(...)
+        end
+
+        def client
+          Line::Bot::V2::MessagingApi::ApiClient.new(
+            channel_access_token: ENV.fetch('LINE_BOT_CHANNEL_ACCESS_TOKEN', nil)
+          )
+        end
+      end
+      ```       
+      </details>
+    <br>
+2. **SolidQueueを導入**
+     1. SolidQueue関連テーブルを作成
+         `bin/rails solid_queue:install`で生成されるqueue_schema.rbを元にDB更新
+     2. SolidQueueの設定
+        - `config/environments/*.rb`にて`config.active_job.queue_adapter = :solid_queue`
+        - アプリのデータとSolidQueueのデータを同一のDBに相乗りさせたいので、`config/environments/*.rb`の`config.solid_queue.connects_to`削除
+     3. SolidQueueの起動を設定
+        - 開発環境の設定
+            ```rb:config/puma.rb
+            plugin :solid_queue if ENV["SOLID_QUEUE_IN_PUMA"] || Rails.env.development?
+            ```
+        - 本番環境の設定
+            ```yaml:.github/workflows/deploy.yml
+            # CDの中で、AWS ECSで下記を実行するTaskを起動（TODO:別Serviceで常時起動する仕組み化）
+            bin/rails solid_queue:start
+            ```
+     4. LINE配信ジョブの定期実行を設定
+        <details><summary>定期実行設定 YAMLのコード</summary>
+
+        ```yaml:config/recurring.yml
+        # 毎日19:45にLINE配信ジョブ実行
+        development:
+          push_line_job:
+            class: PushLineJob
+            args: []
+            schedule: 45 19 * * * Asia/Tokyo
+
+        # 毎日08:00にLINE配信ジョブ実行
+        production:
+          push_line_job:
+            class: PushLineJob
+            args: []
+            schedule: 0 8 * * * Asia/Tokyo
+        ```
+
+        </details>
+      
+      <br>
+3. **LINE配信機能のfeature specを作成**
+
+    <details><summary>LINE配信 feature specのコード</summary>
+
+      ```rb:spec/feature/push_line_job_spec.rb
+      require 'rails_helper'
+
+      RSpec.describe PushLineJob, type: :job do
+        let(:user_without_line) { create(:user, provider: nil, uid: nil, line_notify: false) }
+        let(:user_with_line_notify_on) { create(:user, provider: 'line', uid: '1234567890', line_notify: true) }
+        let(:user_with_line_notify_off) { create(:user, provider: 'line', uid: '1234567891', line_notify: false) }
+
+        let(:mock_client) { instance_double(Line::Bot::V2::MessagingApi::ApiClient) }
+
+        before do
+          allow(Line::Bot::V2::MessagingApi::ApiClient).to receive(:new).and_return(mock_client)
+          allow(mock_client).to receive(:push_message).and_return(true)
+        end
+
+        context 'LINE未連携のユーザの場合' do
+          let!(:user) { user_without_line }
+
+          before do
+            create(:objective, :image, user:)
+            create(:objective, :verbal, user:)
+          end
+
+          it 'ビジョンボードの内容は配信されない' do
+            described_class.perform_now
+            expect(mock_client).not_to have_received(:push_message)
+          end
+        end
+
+        context 'LINE連携済みだが通知許可がOFFの場合' do
+          let!(:user) { user_with_line_notify_off }
+
+          before do
+            create(:objective, :image, user:)
+            create(:objective, :verbal, user:)
+          end
+
+          it 'ビジョンボードの内容は配信されない' do
+            described_class.perform_now
+            expect(mock_client).not_to have_received(:push_message)
+          end
+        end
+
+        context 'LINE連携済みで通知許可がONの場合' do
+          let!(:user) { user_with_line_notify_on }
+
+          before do
+            create(:objective, :image, user:)
+            create(:objective, :verbal, user:)
+          end
+
+          it 'ビジョンボードの内容が1件だけ配信される' do
+            described_class.perform_now
+            expect(mock_client).to have_received(:push_message).with(
+              push_message_request: have_attributes(
+                to: user.uid,
+                messages: satisfy do |messages|
+                  messages.all? do |m|
+                    m.is_a?(Line::Bot::V2::MessagingApi::TextMessage) || m.is_a?(Line::Bot::V2::MessagingApi::ImageMessage)
+                  end
+                end
+              )
+            )
+          end
+        end
+      end
+      ```
+    </details>
