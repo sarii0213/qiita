@@ -1,7 +1,7 @@
 ---
 title: RailsでLINE ログイン/配信 機能を実装 (devise + custom OmniAuth strategy)
 tags:
-  - 'Ruby on Rails'
+  - 'Rails'
   - 'devise'
   - 'OAuth2'
   - 'OIDC'
