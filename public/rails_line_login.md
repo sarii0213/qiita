@@ -1,14 +1,14 @@
 ---
 title: RailsでLINE ログイン/配信 機能を実装 (devise + custom OmniAuth strategy)
 tags:
-  - 'Rails'
-  - 'devise'
-  - 'OAuth2'
-  - 'OIDC'
-  - 'LINE'
+  - Rails
+  - devise
+  - LINE
+  - oauth2
+  - OIDC
 private: false
-updated_at: ''
-id: null
+updated_at: '2025-06-28T10:15:44+09:00'
+id: 177d13550f4193fe91e2
 organization_url_name: null
 slide: false
 ignorePublish: false
