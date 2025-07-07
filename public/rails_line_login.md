@@ -476,18 +476,21 @@ Railsアプリと他Webサービスの間での認証・認可に使われる仕
 
           </details>
 
+         - 本番環境(AWS)ではコンテナ化して常時起動
+           - Task Definitionにて、Railsアプリのコンテナと同一のTaskにSolid Queue用のコンテナを追加
+            <br>
      4. LINE配信ジョブの定期実行を設定
         <details><summary>定期実行設定 YAMLのコード</summary>
 
         ```yaml:config/recurring.yml
-        # 毎日19:45にLINE配信ジョブ実行
+        # 毎日19:45にLINE配信ジョブ実行（開発環境）
         development:
           push_line_job:
             class: PushLineJob
             args: []
             schedule: 45 19 * * * Asia/Tokyo
 
-        # 毎日08:00にLINE配信ジョブ実行
+        # 毎日08:00にLINE配信ジョブ実行（本番環境）
         production:
           push_line_job:
             class: PushLineJob
@@ -574,8 +577,3 @@ Railsアプリと他Webサービスの間での認証・認可に使われる仕
     ⇨ LINE配信機能の実装完了 :tada:
 
 <br>
-
-:::note 
-今後のTODO
-本番環境のLINE配信機能がまだ正常に動いていないので、実装出来次第また記事更新します。
-:::
